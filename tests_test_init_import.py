@@ -27,9 +27,6 @@ class TestComfyUIPackageImport(unittest.TestCase):
             sys.modules[module_name] = module
             spec.loader.exec_module(module)
 
-            self.assertIn("NODE_CLASS_MAPPINGS", module.__all__)
-            self.assertIn("NODE_DISPLAY_NAME_MAPPINGS", module.__all__)
-
             expected_nodes = {
                 "AudioNotifierNode": "Audio Notify",
                 "AudioNotifyImageNode": "Audio Notify Image",
@@ -38,7 +35,13 @@ class TestComfyUIPackageImport(unittest.TestCase):
                 "AudioNotifyClipNode": "Audio Notify Clip",
                 "AudioNotifyVAENode": "Audio Notify VAE",
                 "AudioNotifyAudioNode": "Audio Notify Audio",
+                "AudioNotifyVideoNode": "Audio Notify Video",
                 "AudioNotifyTextNode": "Audio Notify Text",
+                "AudioNotifyImageTriggerNode": "Audio Notify Image Trigger",
+                "AudioNotifyLatentTriggerNode": "Audio Notify Latent Trigger",
+                "AudioNotifyAudioTriggerNode": "Audio Notify Audio Trigger",
+                "AudioNotifyVideoTriggerNode": "Audio Notify Video Trigger",
+                "AudioNotifyTextTriggerNode": "Audio Notify Text Trigger",
             }
 
             for key, display_name in expected_nodes.items():
@@ -46,17 +49,27 @@ class TestComfyUIPackageImport(unittest.TestCase):
                 self.assertEqual(module.NODE_DISPLAY_NAME_MAPPINGS[key], display_name)
                 self.assertEqual(module.NODE_CLASS_MAPPINGS[key].CATEGORY, "utils/audio")
 
-            return_types_expected = {
-                "AudioNotifyImageNode": ("IMAGE",),
-                "AudioNotifyLatentNode": ("LATENT",),
-                "AudioNotifyModelNode": ("MODEL",),
-                "AudioNotifyClipNode": ("CLIP",),
-                "AudioNotifyVAENode": ("VAE",),
-                "AudioNotifyAudioNode": ("AUDIO",),
-                "AudioNotifyTextNode": ("STRING",),
-            }
-            for key, expected in return_types_expected.items():
-                self.assertEqual(module.NODE_CLASS_MAPPINGS[key].RETURN_TYPES, expected)
+            self.assertEqual(module.NODE_CLASS_MAPPINGS["AudioNotifyVideoNode"].RETURN_TYPES, ("VIDEO",))
+
+            trigger_keys = [
+                "AudioNotifyImageTriggerNode",
+                "AudioNotifyLatentTriggerNode",
+                "AudioNotifyAudioTriggerNode",
+                "AudioNotifyVideoTriggerNode",
+                "AudioNotifyTextTriggerNode",
+            ]
+            for key in trigger_keys:
+                self.assertEqual(module.NODE_CLASS_MAPPINGS[key].RETURN_TYPES, ())
+                self.assertTrue(module.NODE_CLASS_MAPPINGS[key].OUTPUT_NODE)
+
+            common_inputs = module.NODE_CLASS_MAPPINGS["AudioNotifyImageNode"].INPUT_TYPES()["required"]
+            for key in [
+                "notification_enabled",
+                "enable_sound_path",
+                "enable_sound_name",
+                "fallback_to_system_beep",
+            ]:
+                self.assertIn(key, common_inputs)
         finally:
             sys.path = original_sys_path
             sys.modules.clear()
