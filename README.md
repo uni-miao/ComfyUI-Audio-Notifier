@@ -4,6 +4,8 @@ English | [中文说明点这里](README.zh-CN.md)
 
 A lightweight ComfyUI custom node pack that plays audio notifications at different stages of a workflow.
 
+<img width="600" alt="ComfyUI-Audio-Notifier preview" src="https://github.com/user-attachments/assets/196649cb-ef08-407a-a3f0-c8b66b9ca650" />
+
 > [!IMPORTANT]
 > This is a **backend node pack**. Audio is played on the machine running the ComfyUI backend process, not necessarily on your browser/client machine.
 
@@ -88,6 +90,8 @@ Node category in current code is:
 You can also right-click and search:
 
 - `Audio Notify`
+
+<img width="600" alt="Add Nodes" src="https://github.com/user-attachments/assets/15a69a83-29f2-4f47-98f2-45fb24b2f48e" />
 
 ## Usage
 
