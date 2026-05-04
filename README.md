@@ -1,15 +1,16 @@
 # ComfyUI-Audio-Notifier
 
-一个用于 ComfyUI 的音频提醒节点集合。到达节点时播放提示音，支持 output node 和多个 passthrough 节点。
+一个用于 ComfyUI 的音频提醒节点集合。到达节点时播放提示音，支持 output node、trigger node 和 passthrough 节点。
 
 > [!IMPORTANT]
 > 声音在运行 ComfyUI **后端进程** 的机器上播放，而不是浏览器所在机器。
 
-## v0.2 后端增强功能
+## v0.2.1 后端增强功能
 
 - 保留 Output 节点：**Audio Notify**
-- 新增 Passthrough 节点（可插入工作流中间）
-- 新增 `sounds/` 目录下拉选择（`sound_name`）
+- 新增 Trigger 节点（无输出，仅建立执行依赖）
+- 新增 Video passthrough：`VIDEO -> VIDEO`
+- 新增 `sound_path` / `sound_name` 启用开关
 - 无第三方 Python 依赖
 
 ## 安装
@@ -27,7 +28,20 @@
 - **Audio Notify**（输出节点）
 - 用法：放在流程末尾，仅用于触发通知，不返回数据
 
-### 2) Passthrough Nodes
+### 2) Trigger Nodes（无输出）
+
+这些节点有输入但没有输出，只用于建立执行依赖并播放声音：
+
+- **Audio Notify Image Trigger**: 输入 `IMAGE`，无输出
+- **Audio Notify Latent Trigger**: 输入 `LATENT`，无输出
+- **Audio Notify Audio Trigger**: 输入 `AUDIO`，无输出
+- **Audio Notify Video Trigger**: 输入 `VIDEO`，无输出
+- **Audio Notify Text Trigger**: 输入 `STRING`（`forceInput=True`），无输出
+
+示例：
+- `VAE Decode` 的 `IMAGE` 同时连接到 `Save Image` 和 `Audio Notify Image Trigger`
+
+### 3) Passthrough Nodes
 
 这些节点会播放声音后原样输出输入值：
 
@@ -37,7 +51,11 @@
 - **Audio Notify Clip**: `CLIP -> CLIP`
 - **Audio Notify VAE**: `VAE -> VAE`
 - **Audio Notify Audio**: `AUDIO -> AUDIO`
+- **Audio Notify Video**: `VIDEO -> VIDEO`
 - **Audio Notify Text**: `STRING -> STRING`（输入使用 `forceInput=True`）
+
+示例：
+- `KSampler -> Audio Notify Latent -> VAE Decode`
 
 ## 参数
 
@@ -45,35 +63,40 @@
 
 - `repeat`: 播放次数
 - `delay_seconds`: 首次播放前延迟秒数
+- `notification_enabled`: 总开关，`False` 时不播放，仅打印日志
+- `enable_sound_path`: 是否启用 `sound_path`
 - `sound_path`: 自定义文件路径（后端机器上的路径）
+- `enable_sound_name`: 是否启用 `sound_name`
 - `sound_name`: 从仓库 `sounds/` 目录中选择文件名
+- `fallback_to_system_beep`: 未选中可用音频时是否回退系统提示音
 
 ## 声音选择优先级
 
-1. 若 `sound_path` 非空且文件存在：播放 `sound_path`
-2. 否则若 `sound_name` 对应 `sounds/` 中文件：播放该文件
-3. 否则：播放系统提示音（最终失败时回退终端 bell）
+1. 若 `notification_enabled=False`：不播放，只打印日志
+2. 若 `enable_sound_path=True` 且 `sound_path` 有效：播放 `sound_path`
+3. 否则若 `enable_sound_name=True` 且 `sound_name` 有效：播放 `sounds/sound_name`
+4. 否则若 `fallback_to_system_beep=True`：播放系统提示音（最终失败时回退终端 bell）
+5. 否则：不播放，只打印日志
 
 ## sounds/ 目录用法
 
 - 把音频文件放到本仓库 `sounds/` 目录。
 - 重启 ComfyUI 后，可在 `sound_name` 下拉中选择文件。
-- `sound_path` 与 `sound_name` 同时设置时，`sound_path` 优先。
 
 ## 类型限制说明
 
 Passthrough 节点是强类型直通，只接受并返回对应类型，不能跨类型连接。
 
-## 工作流示例
+## 平台兼容与音频格式
 
-- `KSampler -> Audio Notify Latent -> VAE Decode`
-- `VAE Decode -> Audio Notify Image -> Save Image`
+- **Windows**:
+  - `.wav` 优先走 `winsound.PlaySound`（最稳定）
+  - 非 `.wav` 优先尝试 `ffplay -nodisp -autoexit <file>`
+  - 若 `ffplay` 不可用，回退 `os.startfile(<file>)`（系统默认播放器）
+- **macOS**: 使用 `afplay`，支持常见音频格式
+- **Linux**: 优先 `ffplay`，其次 `paplay` / `aplay`，最后终端 bell
 
-## 平台兼容
-
-- **Windows**: 优先 `winsound`，并继续优先支持 `wav` 文件播放。
-- **macOS**: 使用 `afplay`。
-- **Linux**: 依次尝试 `paplay` / `aplay` / `ffplay`。
+> mp3/m4a 等格式在 Windows 上依赖 `ffplay` 或系统默认播放器；`wav` 最稳定。
 
 ## 备注
 

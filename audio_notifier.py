@@ -27,31 +27,51 @@ class _AudioNotifyBase:
         return {
             "repeat": ("INT", {"default": 1, "min": 1, "max": 100, "step": 1}),
             "delay_seconds": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 3600.0, "step": 0.1}),
+            "notification_enabled": ("BOOLEAN", {"default": True}),
+            "enable_sound_path": ("BOOLEAN", {"default": False}),
             "sound_path": ("STRING", {"default": "", "multiline": False}),
+            "enable_sound_name": ("BOOLEAN", {"default": False}),
             "sound_name": (_list_sound_choices(), {"default": ""}),
+            "fallback_to_system_beep": ("BOOLEAN", {"default": True}),
         }
 
-    def _play_notify(self, repeat, delay_seconds, sound_path="", sound_name=""):
+    def _play_notify(
+        self,
+        repeat,
+        delay_seconds,
+        notification_enabled=True,
+        enable_sound_path=False,
+        sound_path="",
+        enable_sound_name=False,
+        sound_name="",
+        fallback_to_system_beep=True,
+    ):
+        if not notification_enabled:
+            print("[Audio Notify] notification disabled; skipping playback")
+            return
+
         if delay_seconds > 0:
             time.sleep(delay_seconds)
 
-        resolved = self._resolve_sound(sound_path, sound_name)
+        resolved = self._resolve_sound(enable_sound_path, sound_path, enable_sound_name, sound_name)
+        if not resolved and not fallback_to_system_beep:
+            print("[Audio Notify] no sound source selected; fallback_to_system_beep is disabled")
+            return
 
         for _ in range(max(1, repeat)):
             self._play_sound(resolved)
 
-    def _resolve_sound(self, sound_path, sound_name):
-        # 1) Explicit path has highest priority.
-        path_file = self._resolve_path(sound_path)
-        if path_file:
-            return path_file
+    def _resolve_sound(self, enable_sound_path, sound_path, enable_sound_name, sound_name):
+        if enable_sound_path:
+            path_file = self._resolve_path(sound_path)
+            if path_file:
+                return path_file
 
-        # 2) Named sound under sounds/ directory.
-        named_file = self._resolve_named_sound(sound_name)
-        if named_file:
-            return named_file
+        if enable_sound_name:
+            named_file = self._resolve_named_sound(sound_name)
+            if named_file:
+                return named_file
 
-        # 3) Fallback to platform default/system sound.
         return None
 
     def _resolve_named_sound(self, sound_name):
@@ -86,16 +106,30 @@ class _AudioNotifyBase:
         print("\a", end="", flush=True)
 
     def _play_windows(self, sound_file):
-        try:
-            import winsound
-        except Exception:
-            return False
+        if sound_file and sound_file.suffix.lower() == ".wav":
+            try:
+                import winsound
+
+                winsound.PlaySound(str(sound_file), winsound.SND_FILENAME)
+                return True
+            except Exception:
+                return False
+
+        if sound_file:
+            ffplay = shutil.which("ffplay")
+            if ffplay and self._run_command([ffplay, "-nodisp", "-autoexit", str(sound_file)]):
+                return True
+
+            try:
+                os.startfile(str(sound_file))
+                return True
+            except Exception:
+                return False
 
         try:
-            if sound_file and sound_file.suffix.lower() == ".wav":
-                winsound.PlaySound(str(sound_file), winsound.SND_FILENAME)
-            else:
-                winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+            import winsound
+
+            winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
             return True
         except Exception:
             return False
@@ -110,28 +144,23 @@ class _AudioNotifyBase:
 
     def _play_linux(self, sound_file):
         if sound_file:
-            for player in ["paplay", "aplay", "ffplay"]:
+            ffplay = shutil.which("ffplay")
+            if ffplay and self._run_command([ffplay, "-nodisp", "-autoexit", "-loglevel", "quiet", str(sound_file)]):
+                return True
+
+            for player in ["paplay", "aplay"]:
                 cmd = shutil.which(player)
-                if not cmd:
-                    continue
-                if player == "ffplay":
-                    ok = self._run_command([cmd, "-nodisp", "-autoexit", "-loglevel", "quiet", str(sound_file)])
-                else:
-                    ok = self._run_command([cmd, str(sound_file)])
-                if ok:
+                if cmd and self._run_command([cmd, str(sound_file)]):
                     return True
             return False
 
-        paplay = shutil.which("paplay")
-        if paplay:
-            event_sound = "/usr/share/sounds/freedesktop/stereo/complete.oga"
-            if Path(event_sound).is_file() and self._run_command([paplay, event_sound]):
+        for player, default_file in [
+            ("paplay", "/usr/share/sounds/freedesktop/stereo/complete.oga"),
+            ("aplay", "/usr/share/sounds/alsa/Front_Center.wav"),
+        ]:
+            cmd = shutil.which(player)
+            if cmd and Path(default_file).is_file() and self._run_command([cmd, default_file]):
                 return True
-
-        aplay = shutil.which("aplay")
-        if aplay:
-            return self._run_command([aplay, "/usr/share/sounds/alsa/Front_Center.wav"])
-
         return False
 
     def _run_command(self, cmd):
@@ -152,11 +181,11 @@ class AudioNotifierNode(_AudioNotifyBase):
     OUTPUT_NODE = True
 
     @classmethod
-    def IS_CHANGED(cls, repeat, delay_seconds, sound_path="", sound_name=""):
+    def IS_CHANGED(cls, **kwargs):
         return time.time_ns()
 
-    def notify(self, repeat, delay_seconds, sound_path="", sound_name=""):
-        self._play_notify(repeat, delay_seconds, sound_path, sound_name)
+    def notify(self, **kwargs):
+        self._play_notify(**kwargs)
         return ()
 
 
@@ -167,9 +196,23 @@ class _AudioNotifyPassthroughBase(_AudioNotifyBase):
     def IS_CHANGED(cls, *args, **kwargs):
         return time.time_ns()
 
-    def passthrough(self, value, repeat, delay_seconds, sound_path="", sound_name=""):
-        self._play_notify(repeat, delay_seconds, sound_path, sound_name)
+    def passthrough(self, value, **kwargs):
+        self._play_notify(**kwargs)
         return (value,)
+
+
+class _AudioNotifyTriggerBase(_AudioNotifyBase):
+    RETURN_TYPES = ()
+    FUNCTION = "run"
+    OUTPUT_NODE = True
+
+    @classmethod
+    def IS_CHANGED(cls, *args, **kwargs):
+        return time.time_ns()
+
+    def trigger(self, **kwargs):
+        self._play_notify(**kwargs)
+        return ()
 
 
 class AudioNotifyImageNode(_AudioNotifyPassthroughBase):
@@ -180,8 +223,8 @@ class AudioNotifyImageNode(_AudioNotifyPassthroughBase):
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "run"
 
-    def run(self, image, repeat, delay_seconds, sound_path="", sound_name=""):
-        return self.passthrough(image, repeat, delay_seconds, sound_path, sound_name)
+    def run(self, image, **kwargs):
+        return self.passthrough(image, **kwargs)
 
 
 class AudioNotifyLatentNode(_AudioNotifyPassthroughBase):
@@ -192,8 +235,8 @@ class AudioNotifyLatentNode(_AudioNotifyPassthroughBase):
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "run"
 
-    def run(self, latent, repeat, delay_seconds, sound_path="", sound_name=""):
-        return self.passthrough(latent, repeat, delay_seconds, sound_path, sound_name)
+    def run(self, latent, **kwargs):
+        return self.passthrough(latent, **kwargs)
 
 
 class AudioNotifyModelNode(_AudioNotifyPassthroughBase):
@@ -204,8 +247,8 @@ class AudioNotifyModelNode(_AudioNotifyPassthroughBase):
     RETURN_TYPES = ("MODEL",)
     FUNCTION = "run"
 
-    def run(self, model, repeat, delay_seconds, sound_path="", sound_name=""):
-        return self.passthrough(model, repeat, delay_seconds, sound_path, sound_name)
+    def run(self, model, **kwargs):
+        return self.passthrough(model, **kwargs)
 
 
 class AudioNotifyClipNode(_AudioNotifyPassthroughBase):
@@ -216,8 +259,8 @@ class AudioNotifyClipNode(_AudioNotifyPassthroughBase):
     RETURN_TYPES = ("CLIP",)
     FUNCTION = "run"
 
-    def run(self, clip, repeat, delay_seconds, sound_path="", sound_name=""):
-        return self.passthrough(clip, repeat, delay_seconds, sound_path, sound_name)
+    def run(self, clip, **kwargs):
+        return self.passthrough(clip, **kwargs)
 
 
 class AudioNotifyVAENode(_AudioNotifyPassthroughBase):
@@ -228,8 +271,8 @@ class AudioNotifyVAENode(_AudioNotifyPassthroughBase):
     RETURN_TYPES = ("VAE",)
     FUNCTION = "run"
 
-    def run(self, vae, repeat, delay_seconds, sound_path="", sound_name=""):
-        return self.passthrough(vae, repeat, delay_seconds, sound_path, sound_name)
+    def run(self, vae, **kwargs):
+        return self.passthrough(vae, **kwargs)
 
 
 class AudioNotifyAudioNode(_AudioNotifyPassthroughBase):
@@ -240,8 +283,20 @@ class AudioNotifyAudioNode(_AudioNotifyPassthroughBase):
     RETURN_TYPES = ("AUDIO",)
     FUNCTION = "run"
 
-    def run(self, audio, repeat, delay_seconds, sound_path="", sound_name=""):
-        return self.passthrough(audio, repeat, delay_seconds, sound_path, sound_name)
+    def run(self, audio, **kwargs):
+        return self.passthrough(audio, **kwargs)
+
+
+class AudioNotifyVideoNode(_AudioNotifyPassthroughBase):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"video": ("VIDEO",), **cls._common_inputs()}}
+
+    RETURN_TYPES = ("VIDEO",)
+    FUNCTION = "run"
+
+    def run(self, video, **kwargs):
+        return self.passthrough(video, **kwargs)
 
 
 class AudioNotifyTextNode(_AudioNotifyPassthroughBase):
@@ -257,8 +312,58 @@ class AudioNotifyTextNode(_AudioNotifyPassthroughBase):
     RETURN_TYPES = ("STRING",)
     FUNCTION = "run"
 
-    def run(self, text, repeat, delay_seconds, sound_path="", sound_name=""):
-        return self.passthrough(text, repeat, delay_seconds, sound_path, sound_name)
+    def run(self, text, **kwargs):
+        return self.passthrough(text, **kwargs)
+
+
+class AudioNotifyImageTriggerNode(_AudioNotifyTriggerBase):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"image": ("IMAGE",), **cls._common_inputs()}}
+
+    def run(self, image, **kwargs):
+        return self.trigger(**kwargs)
+
+
+class AudioNotifyLatentTriggerNode(_AudioNotifyTriggerBase):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"latent": ("LATENT",), **cls._common_inputs()}}
+
+    def run(self, latent, **kwargs):
+        return self.trigger(**kwargs)
+
+
+class AudioNotifyAudioTriggerNode(_AudioNotifyTriggerBase):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"audio": ("AUDIO",), **cls._common_inputs()}}
+
+    def run(self, audio, **kwargs):
+        return self.trigger(**kwargs)
+
+
+class AudioNotifyVideoTriggerNode(_AudioNotifyTriggerBase):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"video": ("VIDEO",), **cls._common_inputs()}}
+
+    def run(self, video, **kwargs):
+        return self.trigger(**kwargs)
+
+
+class AudioNotifyTextTriggerNode(_AudioNotifyTriggerBase):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "text": ("STRING", {"default": "", "multiline": True, "forceInput": True}),
+                **cls._common_inputs(),
+            }
+        }
+
+    def run(self, text, **kwargs):
+        return self.trigger(**kwargs)
 
 
 NODE_CLASS_MAPPINGS = {
@@ -269,7 +374,13 @@ NODE_CLASS_MAPPINGS = {
     "AudioNotifyClipNode": AudioNotifyClipNode,
     "AudioNotifyVAENode": AudioNotifyVAENode,
     "AudioNotifyAudioNode": AudioNotifyAudioNode,
+    "AudioNotifyVideoNode": AudioNotifyVideoNode,
     "AudioNotifyTextNode": AudioNotifyTextNode,
+    "AudioNotifyImageTriggerNode": AudioNotifyImageTriggerNode,
+    "AudioNotifyLatentTriggerNode": AudioNotifyLatentTriggerNode,
+    "AudioNotifyAudioTriggerNode": AudioNotifyAudioTriggerNode,
+    "AudioNotifyVideoTriggerNode": AudioNotifyVideoTriggerNode,
+    "AudioNotifyTextTriggerNode": AudioNotifyTextTriggerNode,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -280,5 +391,11 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "AudioNotifyClipNode": "Audio Notify Clip",
     "AudioNotifyVAENode": "Audio Notify VAE",
     "AudioNotifyAudioNode": "Audio Notify Audio",
+    "AudioNotifyVideoNode": "Audio Notify Video",
     "AudioNotifyTextNode": "Audio Notify Text",
+    "AudioNotifyImageTriggerNode": "Audio Notify Image Trigger",
+    "AudioNotifyLatentTriggerNode": "Audio Notify Latent Trigger",
+    "AudioNotifyAudioTriggerNode": "Audio Notify Audio Trigger",
+    "AudioNotifyVideoTriggerNode": "Audio Notify Video Trigger",
+    "AudioNotifyTextTriggerNode": "Audio Notify Text Trigger",
 }
