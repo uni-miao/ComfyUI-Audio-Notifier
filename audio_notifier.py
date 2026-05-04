@@ -38,7 +38,7 @@ class AudioNotifierNode:
         for _ in range(max(1, repeat)):
             self._play_sound(resolved)
 
-        return {}
+        return ()
 
     def _resolve_path(self, sound_path):
         if not sound_path:
