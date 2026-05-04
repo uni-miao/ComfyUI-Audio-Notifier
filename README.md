@@ -91,7 +91,7 @@ You can also right-click and search:
 
 - `Audio Notify`
 
-<img width="600" alt="Add Nodes" src="https://github.com/user-attachments/assets/15a69a83-29f2-4f47-98f2-45fb24b2f48e" />
+<img width="300" alt="Add Nodes" src="https://github.com/user-attachments/assets/15a69a83-29f2-4f47-98f2-45fb24b2f48e" />
 
 ## Usage
 
