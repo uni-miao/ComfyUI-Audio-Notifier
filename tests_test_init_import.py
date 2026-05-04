@@ -29,6 +29,8 @@ class TestComfyUIPackageImport(unittest.TestCase):
 
             expected_nodes = {
                 "AudioNotifierNode": "Audio Notify",
+                "AudioNotifyTriggerNode": "Audio Notify Trigger",
+                "AudioNotifyPassthroughNode": "Audio Notify Passthrough",
                 "AudioNotifyImageNode": "Audio Notify Image",
                 "AudioNotifyLatentNode": "Audio Notify Latent",
                 "AudioNotifyModelNode": "Audio Notify Model",
@@ -47,11 +49,12 @@ class TestComfyUIPackageImport(unittest.TestCase):
             for key, display_name in expected_nodes.items():
                 self.assertIn(key, module.NODE_CLASS_MAPPINGS)
                 self.assertEqual(module.NODE_DISPLAY_NAME_MAPPINGS[key], display_name)
-                self.assertEqual(module.NODE_CLASS_MAPPINGS[key].CATEGORY, "utils/audio")
+                self.assertEqual(module.NODE_CLASS_MAPPINGS[key].CATEGORY, "Audio Notifier")
 
             self.assertEqual(module.NODE_CLASS_MAPPINGS["AudioNotifyVideoNode"].RETURN_TYPES, ("VIDEO",))
 
             trigger_keys = [
+                "AudioNotifyTriggerNode",
                 "AudioNotifyImageTriggerNode",
                 "AudioNotifyLatentTriggerNode",
                 "AudioNotifyAudioTriggerNode",
@@ -62,14 +65,13 @@ class TestComfyUIPackageImport(unittest.TestCase):
                 self.assertEqual(module.NODE_CLASS_MAPPINGS[key].RETURN_TYPES, ())
                 self.assertTrue(module.NODE_CLASS_MAPPINGS[key].OUTPUT_NODE)
 
-            common_inputs = module.NODE_CLASS_MAPPINGS["AudioNotifyImageNode"].INPUT_TYPES()["required"]
-            for key in [
-                "notification_enabled",
-                "enable_sound_path",
-                "enable_sound_name",
-                "fallback_to_system_beep",
-            ]:
-                self.assertIn(key, common_inputs)
+            self.assertIn("blocking_playback", module.NODE_CLASS_MAPPINGS["AudioNotifierNode"].INPUT_TYPES()["required"])
+            self.assertIn("blocking_playback", module.NODE_CLASS_MAPPINGS["AudioNotifyImageNode"].INPUT_TYPES()["required"])
+            self.assertIn("blocking_playback", module.NODE_CLASS_MAPPINGS["AudioNotifyTriggerNode"].INPUT_TYPES()["required"])
+
+            self.assertIn("AudioNotifierNode", module.NODE_CLASS_MAPPINGS)
+            self.assertIn("AudioNotifyTriggerNode", module.NODE_CLASS_MAPPINGS)
+            self.assertIn("AudioNotifyPassthroughNode", module.NODE_CLASS_MAPPINGS)
         finally:
             sys.path = original_sys_path
             sys.modules.clear()
