@@ -2,6 +2,7 @@ import os
 import platform
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -20,7 +21,7 @@ def _list_sound_choices():
 
 
 class _AudioNotifyBase:
-    CATEGORY = "utils/audio"
+    CATEGORY = "Audio Notifier"
 
     @classmethod
     def _common_inputs(cls):
@@ -28,6 +29,7 @@ class _AudioNotifyBase:
             "repeat": ("INT", {"default": 1, "min": 1, "max": 100, "step": 1}),
             "delay_seconds": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 3600.0, "step": 0.1}),
             "notification_enabled": ("BOOLEAN", {"default": True}),
+            "blocking_playback": ("BOOLEAN", {"default": False}),
             "enable_sound_path": ("BOOLEAN", {"default": False}),
             "sound_path": ("STRING", {"default": "", "multiline": False}),
             "enable_sound_name": ("BOOLEAN", {"default": False}),
@@ -40,6 +42,7 @@ class _AudioNotifyBase:
         repeat,
         delay_seconds,
         notification_enabled=True,
+        blocking_playback=False,
         enable_sound_path=False,
         sound_path="",
         enable_sound_name=False,
@@ -50,6 +53,39 @@ class _AudioNotifyBase:
             print("[Audio Notify] notification disabled; skipping playback")
             return
 
+        kwargs = {
+            "repeat": repeat,
+            "delay_seconds": delay_seconds,
+            "enable_sound_path": enable_sound_path,
+            "sound_path": sound_path,
+            "enable_sound_name": enable_sound_name,
+            "sound_name": sound_name,
+            "fallback_to_system_beep": fallback_to_system_beep,
+        }
+
+        if blocking_playback:
+            self._play_notify_impl(**kwargs)
+            return
+
+        thread = threading.Thread(target=self._play_notify_bg, kwargs=kwargs, daemon=True)
+        thread.start()
+
+    def _play_notify_bg(self, **kwargs):
+        try:
+            self._play_notify_impl(**kwargs)
+        except Exception as exc:
+            print(f"[Audio Notify] background playback failed: {exc}")
+
+    def _play_notify_impl(
+        self,
+        repeat,
+        delay_seconds,
+        enable_sound_path=False,
+        sound_path="",
+        enable_sound_name=False,
+        sound_name="",
+        fallback_to_system_beep=True,
+    ):
         if delay_seconds > 0:
             time.sleep(delay_seconds)
 
@@ -215,6 +251,27 @@ class _AudioNotifyTriggerBase(_AudioNotifyBase):
         return ()
 
 
+class AudioNotifyTriggerNode(_AudioNotifyTriggerBase):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"input": ("*", {}), **cls._common_inputs()}}
+
+    def run(self, input, **kwargs):
+        return self.trigger(**kwargs)
+
+
+class AudioNotifyPassthroughNode(_AudioNotifyPassthroughBase):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"input": ("*", {}), **cls._common_inputs()}}
+
+    RETURN_TYPES = ("*",)
+    FUNCTION = "run"
+
+    def run(self, input, **kwargs):
+        return self.passthrough(input, **kwargs)
+
+
 class AudioNotifyImageNode(_AudioNotifyPassthroughBase):
     @classmethod
     def INPUT_TYPES(cls):
@@ -368,6 +425,8 @@ class AudioNotifyTextTriggerNode(_AudioNotifyTriggerBase):
 
 NODE_CLASS_MAPPINGS = {
     "AudioNotifierNode": AudioNotifierNode,
+    "AudioNotifyTriggerNode": AudioNotifyTriggerNode,
+    "AudioNotifyPassthroughNode": AudioNotifyPassthroughNode,
     "AudioNotifyImageNode": AudioNotifyImageNode,
     "AudioNotifyLatentNode": AudioNotifyLatentNode,
     "AudioNotifyModelNode": AudioNotifyModelNode,
@@ -385,6 +444,8 @@ NODE_CLASS_MAPPINGS = {
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "AudioNotifierNode": "Audio Notify",
+    "AudioNotifyTriggerNode": "Audio Notify Trigger",
+    "AudioNotifyPassthroughNode": "Audio Notify Passthrough",
     "AudioNotifyImageNode": "Audio Notify Image",
     "AudioNotifyLatentNode": "Audio Notify Latent",
     "AudioNotifyModelNode": "Audio Notify Model",
