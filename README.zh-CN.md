@@ -4,7 +4,7 @@
 
 一个轻量的 ComfyUI 自定义节点包，用于在工作流不同阶段播放音频提示。
 
-<img width="600" alt="Add Nodes" src="https://github.com/user-attachments/assets/15a69a83-29f2-4f47-98f2-45fb24b2f48e" />
+<img width="600" alt="ComfyUI-Audio-Notifier preview" src="https://github.com/user-attachments/assets/196649cb-ef08-407a-a3f0-c8b66b9ca650" />
 
 > [!IMPORTANT]
 > 这是**后端节点**。声音会在运行 ComfyUI 后端进程的机器上播放，不一定是你当前浏览器所在的机器。
